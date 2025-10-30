@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareSync Roster</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>CareSync Nurse Scheduler</h1>
+      <div class="header-controls">
+        <button id="manage-nurses-btn">Manage Nurses</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="mode-toggle">
+        <button id="mode-planned" class="mode-btn">Log Planned Roster</button>
+        <button id="mode-actual" class="mode-btn active">
+          Log Actual Roster
+        </button>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item">
+          <span class="legend-dot planned"></span> Cell is light blue = Planned
+          Logged
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot actual"></span> Cell is light yellow = Actual
+          Logged
+        </div>
+      </div>
+
+      <div class="calendar-controls">
+        <button id="prev-month">&lt; Prev</button>
+        <h2 id="current-month">July 2025</h2>
+        <button id="next-month">Next &gt;</button>
+      </div>
+
+      <div class="report-downloader">
+        <button id="download-actual-btn">Download Actual Report (.xlsx)</button>
+      </div>
+
+      <div class="calendar-grid" id="calendar-grid">
+        <div class="day-header">Sun</div>
+        <div class="day-header">Mon</div>
+        <div class="day-header">Tue</div>
+        <div class="day-header">Wed</div>
+        <div class="day-header">Thu</div>
+        <div class="day-header">Fri</div>
+        <div class="day-header">Sat</div>
+      </div>
+    </main>
+
+    <div id="roster-modal" class="modal-overlay">
+      <div class="modal-content">
+        <span class="close-modal" id="close-roster-modal">&times;</span>
+        <h3 id="modal-date">Edit Roster for:</h3>
+        <div class="roster-list" id="roster-list"></div>
+        <button id="save-roster-btn">Save Changes</button>
+      </div>
+    </div>
+
+    <div id="nurse-modal" class="modal-overlay">
+      <div class="modal-content">
+        <span class="close-modal" id="close-nurse-modal">&times;</span>
+        <h3>Manage Nurses</h3>
+
+        <div class="nurse-form">
+          <input
+            type="text"
+            id="new-nurse-name"
+            placeholder="Nurse's Full Name"
+          />
+          <input type="number" id="new-nurse-group" placeholder="Group ID" />
+          <button id="add-nurse-btn">Add Nurse</button>
+        </div>
+
+        <div class="nurse-manage-list" id="nurse-manage-list"></div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
