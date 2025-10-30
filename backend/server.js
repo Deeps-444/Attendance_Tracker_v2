@@ -1,86 +1,86 @@
 // --- 1. IMPORT LIBRARIES ---
 const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
+const { Pool } = require("pg"); // <--- CHANGED
 const cors = require("cors");
 const Excel = require("exceljs");
 
 // --- 2. INITIALIZE APP & SETTINGS ---
 const app = express();
-const PORT = 3000;
-const DB_FILE = "attendanceTrackerDB.db";
+// Use port from environment or 3000
+const PORT = process.env.PORT || 3000;
 
 // --- 3. MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
 
 // --- 4. CONNECT TO DATABASE ---
-const db = new sqlite3.Database(DB_FILE, (err) => {
-  if (err) {
-    return console.error("Error connecting to database:", err.message);
-  }
-  console.log("Connected to the CareSync SQLite database.");
+// This tells the app to use the Render database URL
+const db = new Pool({
+  connectionString: process.env.DATABASE_URL, // <--- CHANGED
+  ssl: {
+    rejectUnauthorized: false, // Required for Render connections
+  },
 });
+console.log("Connecting to PostgreSQL database...");
 
 // --- 5. CREATE DATABASE TABLES ---
-db.serialize(() => {
-  // Create Nurses table
-  db.run(`
-        CREATE TABLE IF NOT EXISTS Nurses (
-            nurse_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT NOT NULL,
-            group_id INTEGER NOT NULL
-        )
-    `);
+const createTables = async () => {
+  try {
+    // "SERIAL PRIMARY KEY" is the PostgreSQL version of "AUTOINCREMENT"
+    await db.query(`
+          CREATE TABLE IF NOT EXISTS Nurses (
+              nurse_id SERIAL PRIMARY KEY,
+              full_name TEXT NOT NULL,
+              group_id INTEGER NOT NULL
+          )
+      `);
 
-  // Create Planned Roster table
-  db.run(`
-        CREATE TABLE IF NOT EXISTS Roster_Planned (
-            plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nurse_id INTEGER,
-            date TEXT NOT NULL,
-            shift_code TEXT,
-            ward TEXT,
-            FOREIGN KEY (nurse_id) REFERENCES Nurses (nurse_id),
-            UNIQUE(nurse_id, date)
-        )
-    `);
+    // Added "ON DELETE CASCADE" so if a nurse is deleted, their rosters are too
+    await db.query(`
+          CREATE TABLE IF NOT EXISTS Roster_Planned (
+              plan_id SERIAL PRIMARY KEY,
+              nurse_id INTEGER,
+              date TEXT NOT NULL,
+              shift_code TEXT,
+              ward TEXT,
+              FOREIGN KEY (nurse_id) REFERENCES Nurses (nurse_id) ON DELETE CASCADE,
+              UNIQUE(nurse_id, date)
+          )
+      `);
 
-  // Create Actual Roster table
-  db.run(`
-        CREATE TABLE IF NOT EXISTS Roster_Actual (
-            actual_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nurse_id INTEGER,
-            date TEXT NOT NULL,
-            shift_code TEXT,
-            ward TEXT,
-            FOREIGN KEY (nurse_id) REFERENCES Nurses (nurse_id),
-            UNIQUE(nurse_id, date) 
-        )
-    `);
-  console.log("Database tables are ready.");
-});
+    await db.query(`
+          CREATE TABLE IF NOT EXISTS Roster_Actual (
+              actual_id SERIAL PRIMARY KEY,
+              nurse_id INTEGER,
+              date TEXT NOT NULL,
+              shift_code TEXT,
+              ward TEXT,
+              FOREIGN KEY (nurse_id) REFERENCES Nurses (nurse_id) ON DELETE CASCADE,
+              UNIQUE(nurse_id, date) 
+          )
+      `);
+    console.log("Database tables are ready.");
+  } catch (err) {
+    console.error("Error creating tables:", err);
+  }
+};
+createTables(); // Run the table creation
 
-// Helper functions for async
+// --- UPDATED HELPER FUNCTIONS for 'pg' ---
+// pg.query returns promises, so we just get the 'rows' property
 function dbAllAsync(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+  return db.query(sql, params).then((res) => res.rows);
 }
+// pg.query is used for INSERT/UPDATE/DELETE
 function dbRunAsync(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
+  return db.query(sql, params);
 }
 
 // --- 6. API ENDPOINTS ---
 
 // --- (A) Nurse Management API ---
+// (SQL placeholders changed from ? to $1, $2, etc.)
+
 app.get("/api/nurses", async (req, res) => {
   try {
     const nurses = await dbAllAsync(
@@ -98,9 +98,11 @@ app.post("/api/nurses", async (req, res) => {
     return res.status(400).json({ error: "Name and group are required" });
   }
   try {
-    const sql = "INSERT INTO Nurses (full_name, group_id) VALUES (?, ?)";
-    const result = await dbRunAsync(sql, [name, group]);
-    res.status(201).json({ id: result.lastID, name, group });
+    // Use 'RETURNING' to get the new ID from PostgreSQL
+    const sql =
+      "INSERT INTO Nurses (full_name, group_id) VALUES ($1, $2) RETURNING nurse_id";
+    const result = await db.query(sql, [name, group]);
+    res.status(201).json({ id: result.rows[0].nurse_id, name, group });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -109,9 +111,8 @@ app.post("/api/nurses", async (req, res) => {
 app.delete("/api/nurses/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    await dbRunAsync("DELETE FROM Nurses WHERE nurse_id = ?", [id]);
-    await dbRunAsync("DELETE FROM Roster_Planned WHERE nurse_id = ?", [id]);
-    await dbRunAsync("DELETE FROM Roster_Actual WHERE nurse_id = ?", [id]);
+    // "ON DELETE CASCADE" in the table definition handles deleting roster data
+    await dbRunAsync("DELETE FROM Nurses WHERE nurse_id = $1", [id]);
     res.status(200).json({ message: "Nurse deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -126,10 +127,11 @@ app.get("/api/roster-status", async (req, res) => {
     return res.status(400).json({ error: "Month query parameter is required" });
   }
   try {
+    // Use PostgreSQL date functions
     const plannedSql =
-      "SELECT DISTINCT date FROM Roster_Planned WHERE strftime('%Y-%m', date) = ?";
+      "SELECT DISTINCT date FROM Roster_Planned WHERE to_char(date::date, 'YYYY-MM') = $1";
     const actualSql =
-      "SELECT DISTINCT date FROM Roster_Actual WHERE strftime('%Y-%m', date) = ?";
+      "SELECT DISTINCT date FROM Roster_Actual WHERE to_char(date::date, 'YYYY-MM') = $1";
 
     const plannedDays = await dbAllAsync(plannedSql, [month]);
     const actualDays = await dbAllAsync(actualSql, [month]);
@@ -165,9 +167,9 @@ app.get("/api/roster", async (req, res) => {
         FROM 
             Nurses n
         LEFT JOIN 
-            Roster_Planned p ON n.nurse_id = p.nurse_id AND p.date = ?
+            Roster_Planned p ON n.nurse_id = p.nurse_id AND p.date = $1
         LEFT JOIN 
-            Roster_Actual a ON n.nurse_id = a.nurse_id AND a.date = ?
+            Roster_Actual a ON n.nurse_id = a.nurse_id AND a.date = $2
         ORDER BY
             n.group_id, n.full_name;
     `;
@@ -186,8 +188,8 @@ app.post("/api/roster-planned", async (req, res) => {
   }
   const sql = `
         INSERT INTO Roster_Planned (nurse_id, date, shift_code, ward)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(nurse_id, date) DO UPDATE SET
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (nurse_id, date) DO UPDATE SET
             shift_code = excluded.shift_code,
             ward = excluded.ward;
     `;
@@ -212,8 +214,8 @@ app.post("/api/roster-actual", async (req, res) => {
   }
   const sql = `
         INSERT INTO Roster_Actual (nurse_id, date, shift_code, ward)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(nurse_id, date) DO UPDATE SET
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (nurse_id, date) DO UPDATE SET
             shift_code = excluded.shift_code,
             ward = excluded.ward;
     `;
@@ -232,10 +234,6 @@ app.post("/api/roster-actual", async (req, res) => {
 });
 
 // --- (C) Report Generation API ---
-
-/**
- * @route   GET /api/report-actual (The only report)
- */
 app.get("/api/report-actual", async (req, res) => {
   const { month } = req.query;
   if (!month) {
@@ -246,11 +244,11 @@ app.get("/api/report-actual", async (req, res) => {
       "SELECT * FROM Nurses ORDER BY group_id, full_name"
     );
     const planned = await dbAllAsync(
-      "SELECT * FROM Roster_Planned WHERE strftime('%Y-%m', date) = ?",
+      "SELECT * FROM Roster_Planned WHERE to_char(date::date, 'YYYY-MM') = $1",
       [month]
     );
     const actual = await dbAllAsync(
-      "SELECT * FROM Roster_Actual WHERE strftime('%Y-%m', date) = ?",
+      "SELECT * FROM Roster_Actual WHERE to_char(date::date, 'YYYY-MM') = $1",
       [month]
     );
 
@@ -294,7 +292,6 @@ app.get("/api/report-actual", async (req, res) => {
 
     const workbook = new Excel.Workbook();
     const worksheet = workbook.addWorksheet(`${month} Actual Report`);
-
     const columns = [{ header: "Staff Name", key: "name", width: 30 }];
     for (let i = 1; i <= daysInMonth; i++) {
       columns.push({ header: i.toString(), key: `day${i}`, width: 5 });
@@ -318,10 +315,7 @@ app.get("/api/report-actual", async (req, res) => {
           const displayCode = shift.actual || shift.planned || "";
           rowData[`day${day}`] = displayCode;
 
-          // --- UPDATED DEVIATION LOGIC ---
-          // Planned work is A, M, N, or G
           const plannedWork = ["A", "M", "N", "G"].includes(shift.planned);
-          // Actual leave is ANY non-work shift
           const actualLeave = [
             "PL",
             "SL",
@@ -336,7 +330,6 @@ app.get("/api/report-actual", async (req, res) => {
           if (plannedWork && actualLeave) {
             totalDeviations++;
           }
-          // --- END OF UPDATED LOGIC ---
         } else {
           rowData[`day${day}`] = "";
         }
@@ -351,7 +344,6 @@ app.get("/api/report-actual", async (req, res) => {
 
       row.eachCell((cell, colNumber) => {
         if (colNumber > 1 && colNumber <= daysInMonth + 1) {
-          // Updated coloring to match new leave codes
           if (["WO", "NO", "SO", "PL", "SL", "NH", "PH"].includes(cell.value)) {
             cell.fill = {
               type: "pattern",
@@ -385,5 +377,5 @@ app.get("/api/report-actual", async (req, res) => {
 
 // --- 7. START THE SERVER ---
 app.listen(PORT, () => {
-  console.log(`Backend server is running on http://localhost:${PORT}`);
+  console.log(`Backend server is running on port ${PORT}`);
 });
