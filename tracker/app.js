@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ).padStart(2, "0")}`;
     try {
       const response = await fetch(
-        `http://localhost:3000/api/roster-status?month=${monthQuery}`
+        `https://attendancetracker-backend-04g3.onrender.com/api/roster-status?month=${monthQuery}`
       );
       if (!response.ok) throw new Error("Failed to fetch status");
       calendarStatus = await response.json();
@@ -135,7 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
     rosterModal.dataset.editingDate = date;
 
     const response = await fetch(
-      `http://localhost:3000/api/roster?date=${date}`
+      `https://attendancetracker-backend-04g3.onrender.com/api/roster?date=${date}`
     );
     if (!response.ok) {
       alert("Error fetching roster data. See console.");
@@ -216,11 +216,14 @@ document.addEventListener("DOMContentLoaded", () => {
       currentMode === "planned" ? "roster-planned" : "roster-actual";
 
     try {
-      const response = await fetch(`http://localhost:3000/api/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: date, roster: rosterPayload }),
-      });
+      const response = await fetch(
+        `https://attendancetracker-backend-04g3.onrender.com/api/${endpoint}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: date, roster: rosterPayload }),
+        }
+      );
 
       if (!response.ok) {
         const err = await response.json();
@@ -241,7 +244,9 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadNurses() {
     nurseManageListEl.innerHTML = "Loading...";
     try {
-      const response = await fetch("http://localhost:3000/api/nurses");
+      const response = await fetch(
+        "https://attendancetracker-backend-04g3.onrender.com/api/nurses"
+      );
       const nurses = await response.json();
 
       nurseManageListEl.innerHTML = "";
@@ -274,11 +279,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      const response = await fetch("http://localhost:3000/api/nurses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, group }),
-      });
+      const response = await fetch(
+        "https://attendancetracker-backend-04g3.onrender.com/api/nurses",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, group }),
+        }
+      );
       if (!response.ok) throw new Error("Failed to add nurse");
 
       newNurseNameEl.value = "";
@@ -303,9 +311,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:3000/api/nurses/${id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `https://attendancetracker-backend-04g3.onrender.com/api/nurses/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
       if (!response.ok) throw new Error("Failed to delete nurse");
       loadNurses();
     } catch (err) {
@@ -372,7 +383,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const year = currentDate.getFullYear();
       const monthNum = String(currentDate.getMonth() + 1).padStart(2, "0");
       const monthQuery = `${year}-${monthNum}`;
-      const reportUrl = `http://localhost:3000/api/report-actual?month=${monthQuery}`;
+      const reportUrl = `https://attendancetracker-backend-04g3.onrender.com/api/report-actual?month=${monthQuery}`;
       window.location.href = reportUrl;
     });
 
